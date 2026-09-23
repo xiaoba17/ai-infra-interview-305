@@ -206,6 +206,11 @@ def main() -> int:
     files = collect_md_files()
     rels = sorted({rel_posix(p) for p in files}, key=module_key)
     path_to_anchor = {r: doc_anchor(r) for r in rels}
+    question_rels = [r for r in rels if re.match(r"^\d+-", Path(r).stem)]
+    next_question = {
+        r: question_rels[(i + 1) % len(question_rels)]
+        for i, r in enumerate(question_rels)
+    }
 
     by_folder: dict[str, list[str]] = defaultdict(list)
     for r in rels:
@@ -235,6 +240,21 @@ def main() -> int:
         raw = rewrite_md_links(raw, r, path_to_anchor)
         raw = protect_math_tokens(raw)
         body = fix_display_math_paragraphs(md_to_html(raw))
+        question, separator, answer = body.partition("<h2>完整讲解</h2>")
+        if r in next_question and separator:
+            next_id = path_to_anchor[next_question[r]]
+            next_label = "下一题 →" if r != question_rels[-1] else "回到第一题 →"
+            body = (
+                question
+                + '<p class="recall-hint">先尝试自己回答，再展开答案核对。</p>'
+                + '<details class="answer-card"><summary class="answer-toggle">'
+                + '<span class="answer-show">查看答案</span>'
+                + '<span class="answer-hide">收起答案</span></summary>'
+                + '<div class="answer-body">' + separator + answer + '</div>'
+                + '<button type="button" class="close-answer">收起答案，重新回忆</button>'
+                + '</details>'
+                + f'<p class="card-next"><a href="#{next_id}">{next_label}</a></p>'
+            )
         aid = path_to_anchor[r]
         label = escape(r)
         articles_html.append(
@@ -627,6 +647,23 @@ html.light .md a {{
 }}
 .hidden-mod {{ display: none; }}
 .mobile-bar {{ display: none; }}
+.recall-hint {{ color: var(--muted); font-size: 0.875rem; }}
+.answer-toggle {{
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-weight: 600;
+}}
+.answer-hide, .answer-card[open] > summary .answer-show {{ display: none; }}
+.answer-card[open] > summary .answer-hide {{ display: inline; }}
+.close-answer {{ min-height: 44px; }}
+.card-next {{ text-align: right; font-family: var(--font-ui); }}
+.card-next a {{ display: inline-block; padding: 0.5rem; min-height: 44px; }}
 .md img {{ max-width: 100%; height: auto; }}
 :focus-visible {{ outline: 2px solid var(--accent); outline-offset: 3px; }}
 
@@ -680,6 +717,7 @@ html.light .md a {{
         <input type="search" id="q" aria-label="筛选标题" placeholder="筛选标题…" autocomplete="off">
         <button type="button" id="btnRand">随机一篇</button>
         <button type="button" id="btnTheme">浅色</button>
+        <button type="button" id="btnAnswers">展开全部答案</button>
       </div>
     </div>
     <nav class="nav-scroll" id="nav">{nav_joined}</nav>
@@ -714,6 +752,27 @@ html.light .md a {{
   const q = document.getElementById('q');
   const btnRand = document.getElementById('btnRand');
   const btnTheme = document.getElementById('btnTheme');
+  const answerCards = Array.from(document.querySelectorAll('.answer-card'));
+  const btnAnswers = document.getElementById('btnAnswers');
+  let selfTest = true;
+  function updateAnswersButton() {{
+    btnAnswers.textContent = answerCards.some(card => card.open) ? '收起全部答案' : '展开全部答案';
+  }}
+  answerCards.forEach(card => card.addEventListener('toggle', updateAnswersButton));
+  btnAnswers.addEventListener('click', function() {{
+    const expand = !answerCards.some(card => card.open);
+    selfTest = !expand;
+    answerCards.forEach(card => {{ card.open = expand; }});
+    updateAnswersButton();
+  }});
+  document.getElementById('main').addEventListener('click', function(e) {{
+    const button = e.target.closest('.close-answer');
+    if (!button) return;
+    const card = button.closest('.answer-card');
+    card.open = false;
+    card.querySelector('summary').focus({{ preventScroll: true }});
+    card.closest('.paper').scrollIntoView({{ behavior: 'instant', block: 'start' }});
+  }});
   const btnNav = document.getElementById('btnNav');
   const layout = document.querySelector('.layout');
   const mobile = window.matchMedia('(max-width: 768px)');
@@ -742,6 +801,8 @@ html.light .md a {{
     setNavOpen(false);
   }});
   function showArticle(el, behavior = 'smooth') {{
+    const answer = el.querySelector('.answer-card');
+    if (selfTest && answer) answer.open = false;
     if (mobile.matches) {{
       setNavOpen(false);
       document.getElementById('main').focus({{ preventScroll: true }});
@@ -782,8 +843,9 @@ html.light .md a {{
   }});
 
   btnRand.addEventListener('click', function() {{
-    const visibleLinks = links.filter(a => !a.classList.contains('hidden'));
-    const pool = visibleLinks.length ? visibleLinks : links;
+    const questionLinks = links.filter(a => idToArticle[a.hash.slice(1)]?.querySelector('.answer-card'));
+    const visibleLinks = questionLinks.filter(a => !a.classList.contains('hidden'));
+    const pool = visibleLinks.length ? visibleLinks : questionLinks;
     const a = pool[Math.floor(Math.random() * pool.length)];
     if (!a) return;
     const id = a.getAttribute('href').slice(1);
