@@ -317,7 +317,7 @@ html.light body {{
 }}
 .layout {{
   display: grid;
-  grid-template-columns: minmax(260px, 300px) 1fr;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   height: 100vh;
   gap: 0;
 }}
@@ -449,6 +449,7 @@ button:active {{ transform: scale(0.97); }}
 .nav-link.hidden {{ display: none; }}
 main {{
   overflow: auto;
+  min-width: 0;
   min-height: 0;
   padding: 1.75rem 1.5rem 4rem;
 }}
@@ -496,6 +497,7 @@ html.light .paper:hover {{
   padding: 1.35rem 1.5rem 1.6rem;
 }}
 .md {{
+  overflow-wrap: anywhere;
   font-family: var(--font-body);
   font-size: 1.0625rem;
   line-height: 1.75;
@@ -544,6 +546,7 @@ html.light .paper:hover {{
   border: 1px solid var(--border);
 }}
 .md pre {{
+  overflow-wrap: normal;
   background: var(--code-bg);
   padding: 1rem 1.15rem;
   border-radius: var(--radius-sm);
@@ -559,12 +562,14 @@ html.light .paper:hover {{
   font-size: inherit;
 }}
 .md table {{
+  display: block;
+  overflow-wrap: normal;
   border-collapse: collapse;
   width: 100%;
   font-size: 0.92rem;
   font-family: var(--font-ui);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  overflow-x: auto;
   margin: 1em 0;
 }}
 .md th, .md td {{
@@ -603,7 +608,9 @@ html.light .md a {{
   color: #0f766e;
 }}
 .math-inline {{
-  display: inline;
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
   vertical-align: middle;
 }}
 .math-inline .katex {{
@@ -619,23 +626,65 @@ html.light .md a {{
   color: var(--math-color) !important;
 }}
 .hidden-mod {{ display: none; }}
+.mobile-bar {{ display: none; }}
+.md img {{ max-width: 100%; height: auto; }}
+:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 3px; }}
+
+@media (max-width: 768px) {{
+  body, .layout {{ height: 100vh; height: 100dvh; }}
+  .layout {{ display: flex; flex-direction: column; }}
+  .mobile-bar {{
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding: 0.5rem max(0.75rem, env(safe-area-inset-right)) 0.5rem max(0.75rem, env(safe-area-inset-left));
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }}
+  .mobile-title {{ font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .mobile-bar button {{ flex-shrink: 0; }}
+  aside {{ display: none; border-right: 0; border-bottom: 1px solid var(--border); box-shadow: none; }}
+  .nav-open aside {{ display: flex; flex: 0 1 50%; min-height: 0; }}
+  .aside-hd {{ padding: 0.65rem 0.75rem; flex-shrink: 0; }}
+  .aside-hd h1, .aside-hd .tagline {{ display: none; }}
+  .tools input {{ font-size: 1rem; }}
+  button, .nav-link, .mod-sum {{ min-height: 44px; }}
+  .nav-scroll {{ min-height: 0; overscroll-behavior: contain; }}
+  main {{ flex: 1; padding: 0.75rem max(0.5rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(0.5rem, env(safe-area-inset-left)); }}
+  .paper {{ margin-bottom: 1rem; border-radius: var(--radius-sm); }}
+  .paper-hd {{ padding: 0.65rem 0.85rem; }}
+  .paper-bd {{ padding: 1rem 0.85rem; }}
+  .md {{ font-size: 1rem; }}
+  .md h1 {{ font-size: 1.3rem; }}
+  .md pre {{ padding: 0.75rem; }}
+}}
+@media (prefers-reduced-motion: reduce) {{
+  html {{ scroll-behavior: auto; }}
+  *, *::before, *::after {{ transition: none !important; }}
+}}
 </style>
 </head>
 <body>
 <div class="layout">
-  <aside>
+  <header class="mobile-bar">
+    <button type="button" id="btnNav" aria-expanded="false" aria-controls="sidebar">目录</button>
+    <span class="mobile-title">{escape(h1_txt)}</span>
+  </header>
+  <aside id="sidebar" aria-label="题目目录">
     <div class="aside-hd">
       <h1>{escape(h1_txt)}</h1>
       <div class="tagline">{escape(tag_txt)}</div>
       <div class="tools">
-        <input type="search" id="q" placeholder="筛选标题…" autocomplete="off">
+        <input type="search" id="q" aria-label="筛选标题" placeholder="筛选标题…" autocomplete="off">
         <button type="button" id="btnRand">随机一篇</button>
         <button type="button" id="btnTheme">浅色</button>
       </div>
     </div>
     <nav class="nav-scroll" id="nav">{nav_joined}</nav>
   </aside>
-  <main id="main">{articles_joined}</main>
+  <main id="main" tabindex="-1">{articles_joined}</main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin></script>
 <script>
@@ -665,6 +714,44 @@ html.light .md a {{
   const q = document.getElementById('q');
   const btnRand = document.getElementById('btnRand');
   const btnTheme = document.getElementById('btnTheme');
+  const btnNav = document.getElementById('btnNav');
+  const layout = document.querySelector('.layout');
+  const mobile = window.matchMedia('(max-width: 768px)');
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function setNavOpen(open) {{
+    layout.classList.toggle('nav-open', open);
+    btnNav.setAttribute('aria-expanded', String(open));
+    btnNav.textContent = open ? '收起目录' : '目录';
+  }}
+  btnNav.addEventListener('click', function() {{
+    setNavOpen(!layout.classList.contains('nav-open'));
+  }});
+  document.addEventListener('keydown', function(e) {{
+    if (e.key === 'Escape' && mobile.matches && layout.classList.contains('nav-open')) {{
+      setNavOpen(false);
+      btnNav.focus();
+    }}
+  }});
+  mobile.addEventListener('change', function() {{
+    if (mobile.matches && document.getElementById('sidebar').contains(document.activeElement)) {{
+      btnNav.focus();
+    }} else if (!mobile.matches && document.activeElement === btnNav) {{
+      q.focus();
+    }}
+    setNavOpen(false);
+  }});
+  function showArticle(el, behavior = 'smooth') {{
+    if (mobile.matches) {{
+      setNavOpen(false);
+      document.getElementById('main').focus({{ preventScroll: true }});
+    }}
+    el.scrollIntoView({{ behavior: reducedMotion.matches ? 'instant' : behavior, block: 'start' }});
+  }}
+  window.addEventListener('hashchange', function() {{
+    const el = idToArticle[location.hash.slice(1)];
+    if (el) showArticle(el, 'instant');
+  }});
 
   function filterNav() {{
     const term = (q.value || '').trim().toLowerCase();
@@ -684,9 +771,14 @@ html.light .md a {{
   document.getElementById('nav').addEventListener('click', function(e) {{
     const a = e.target.closest('a.nav-link');
     if (!a) return;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const id = a.getAttribute('href').slice(1);
     const el = document.getElementById(id);
-    if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+    if (el) {{
+      e.preventDefault();
+      if (location.hash !== '#' + id) history.pushState(null, '', '#' + id);
+      showArticle(el);
+    }}
   }});
 
   btnRand.addEventListener('click', function() {{
@@ -697,7 +789,7 @@ html.light .md a {{
     const id = a.getAttribute('href').slice(1);
     const el = document.getElementById(id);
     if (el) {{
-      el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+      showArticle(el);
       history.replaceState(null, '', '#' + id);
     }}
   }});
@@ -723,7 +815,9 @@ html.light .md a {{
 </body>
 </html>"""
 
-    OUT.write_text(html, encoding="utf-8")
+    # Preserve the checked-in line endings when regenerating on another OS.
+    newline = "\r\n" if OUT.exists() and b"\r\n" in OUT.read_bytes() else "\n"
+    OUT.write_text(html, encoding="utf-8", newline=newline)
     print(f"Wrote {OUT} ({len(html) // 1024} KB)")
     return 0
 
